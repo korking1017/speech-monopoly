@@ -1,5 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import type { ClassRecord, StudentRecord } from '../types'
+import { loadClasses, loadStudents, loadCheckin, saveGameConfig } from '../utils/storage'
+import Avatar from '../components/Avatar'
+import { PageHeader } from '../components/UI'
 
 const TEAM_COLORS = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7']
 const TEAM_ICONS = ['🦁', '🦅', '🐉', '🐺', '🦈']
@@ -8,8 +12,8 @@ const TEAM_NAMES = ['狮子队', '飞鹰队', '神龙队', '战狼队', '鲨鱼�
 export default function GroupingPage() {
   const { classId } = useParams<{ classId: string }>()
   const navigate = useNavigate()
-  const [classData, setClassData] = useState<any>(null)
-  const [students, setStudents] = useState<any[]>([])
+  const [classData, setClassData] = useState<ClassRecord | null>(null)
+  const [students, setStudents] = useState<StudentRecord[]>([])
   const [gameMode, setGameMode] = useState<'individual' | 'team'>('individual')
   const [teamCount, setTeamCount] = useState(2)
   const [teams, setTeams] = useState<any[]>([])
@@ -17,20 +21,26 @@ export default function GroupingPage() {
   const [difficulty, setDifficulty] = useState<1 | 2 | 3>(1)
 
   useEffect(() => {
-    const stored = localStorage.getItem('speech_classes')
-    const checkinData = localStorage.getItem('speech_current_checkin')
-    if (stored && checkinData) {
-      const classes = JSON.parse(stored)
-      const found = classes.find((c: any) => c.id === classId)
-      if (found) {
-        setClassData(found)
-        const { studentIds } = JSON.parse(checkinData)
-        const checkedIn = found.students.filter((s: any) => studentIds.includes(s.id))
-        setStudents(checkedIn)
-        setUnassigned([...checkedIn])
-        randomGroup(checkedIn, 2)
-      }
+    const classes = loadClasses()
+    const found = classes.find((c) => c.id === classId) || null
+    const checkin = loadCheckin()
+    if (!found) return
+
+    setClassData(found)
+
+    const ids: string[] = checkin?.studentIds || found.studentIds
+    const lib = loadStudents()
+    let checkedIn = ids
+      .map((sid) => lib.find((s) => s.id === sid))
+      .filter((s): s is StudentRecord => Boolean(s))
+
+    if (checkedIn.length === 0 && found.students?.length) {
+      checkedIn = found.students.filter((s: any) => ids.includes(s.id))
     }
+
+    setStudents(checkedIn)
+    setUnassigned([...checkedIn])
+    randomGroup(checkedIn, 2)
   }, [classId])
 
   const randomGroup = (studentList: any[], count: number) => {
@@ -57,19 +67,19 @@ export default function GroupingPage() {
 
   const handleStartGame = () => {
     if (gameMode === 'individual') {
-      localStorage.setItem('speech_current_game_config', JSON.stringify({
+      saveGameConfig({
         classId,
         gameMode: 'individual',
         participants: students.map(s => s.id),
         teams: null,
         difficulty,
-      }))
+      })
     } else {
       if (unassigned.length > 0) {
         alert('还有学生未分配队伍')
         return
       }
-      localStorage.setItem('speech_current_game_config', JSON.stringify({
+      saveGameConfig({
         classId,
         gameMode: 'team',
         participants: students.map(s => s.id),
@@ -78,16 +88,14 @@ export default function GroupingPage() {
           memberIds: t.members.map((m: any) => m.id),
         })),
         difficulty,
-      }))
+      })
     }
     navigate(`/game/${classId}`)
   }
 
   const moveToTeam = (student: any, teamId: string) => {
     const newTeams = teams.map(t => {
-      if (t.id === teamId) {
-        return { ...t, members: [...t.members, student] }
-      }
+      if (t.id === teamId) return { ...t, members: [...t.members, student] }
       return { ...t, members: t.members.filter((m: any) => m.id !== student.id) }
     })
     setTeams(newTeams)
@@ -96,9 +104,7 @@ export default function GroupingPage() {
 
   const moveToUnassigned = (student: any, teamId: string) => {
     const newTeams = teams.map(t => {
-      if (t.id === teamId) {
-        return { ...t, members: t.members.filter((m: any) => m.id !== student.id) }
-      }
+      if (t.id === teamId) return { ...t, members: t.members.filter((m: any) => m.id !== student.id) }
       return t
     })
     setTeams(newTeams)
@@ -111,14 +117,8 @@ export default function GroupingPage() {
 
   return (
     <div style={{ maxWidth: '800px', margin: '0 auto', padding: '20px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '24px' }}>
-        <button onClick={() => navigate(`/checkin/${classId}`)} style={{
-          fontSize: '24px', background: 'none', minWidth: '44px', minHeight: '44px',
-        }}>←</button>
-        <h2 style={{ fontSize: '24px', marginLeft: '8px' }}>👥 分组设置</h2>
-      </div>
+      <PageHeader title="👥 分组设置" onBack={() => navigate(`/checkin/${classId}`)} />
 
-      {/* 游戏模式选择 */}
       <div style={{
         backgroundColor: '#fff', borderRadius: '16px', padding: '20px',
         marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
@@ -140,43 +140,30 @@ export default function GroupingPage() {
         </div>
       </div>
 
-      {/* 难度选择 */}
       <div style={{
         backgroundColor: '#fff', borderRadius: '16px', padding: '20px',
         marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
       }}>
         <h3 style={{ marginBottom: '12px' }}>⭐ 难度选择</h3>
-        <p style={{ fontSize: '14px', color: '#666', marginBottom: '12px' }}>
-          选择难度会影响题库抽取范围，初级只抽初级题，中级抽初级+中级，高级抽全部
-        </p>
         <div style={{ display: 'flex', gap: '10px' }}>
           {[
-            { level: 1, label: '⭐ 初级', desc: '适合新手', color: '#4CAF50' },
-            { level: 2, label: '⭐⭐ 中级', desc: '适合进阶', color: '#FF9800' },
-            { level: 3, label: '⭐⭐⭐ 高级', desc: '适合高手', color: '#F44336' },
+            { level: 1, label: '⭐ 初级', color: '#4CAF50' },
+            { level: 2, label: '⭐⭐ 中级', color: '#FF9800' },
+            { level: 3, label: '⭐⭐⭐ 高级', color: '#F44336' },
           ].map(item => (
             <button key={item.level} onClick={() => setDifficulty(item.level as 1 | 2 | 3)} style={{
               flex: 1, padding: '14px', borderRadius: '12px', fontSize: '15px',
               backgroundColor: difficulty === item.level ? item.color : '#f5f5f5',
               color: difficulty === item.level ? '#fff' : '#333',
-              fontWeight: 'bold',
-              border: difficulty === item.level ? 'none' : '2px solid #E0E0E0',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px',
-            }}>
-              <span>{item.label}</span>
-              <span style={{ fontSize: '11px', fontWeight: 'normal', opacity: 0.8 }}>{item.desc}</span>
-            </button>
+              fontWeight: 'bold', border: difficulty === item.level ? 'none' : '2px solid #E0E0E0',
+            }}>{item.label}</button>
           ))}
         </div>
       </div>
 
-      {/* 团队模式设置 */}
       {gameMode === 'team' && (
         <>
-          <div style={{
-            backgroundColor: '#fff', borderRadius: '16px', padding: '20px',
-            marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-          }}>
+          <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '20px', marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontWeight: 'bold' }}>队伍数量：</span>
               <div style={{ display: 'flex', gap: '8px' }}>
@@ -193,60 +180,30 @@ export default function GroupingPage() {
 
           <div style={{ display: 'grid', gridTemplateColumns: `repeat(${teamCount}, 1fr)`, gap: '12px', marginBottom: '20px' }}>
             {teams.map(team => (
-              <div key={team.id} style={{
-                backgroundColor: '#fff', borderRadius: '16px', padding: '16px',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-                borderTop: `4px solid ${team.color}`,
-              }}>
-                <div style={{ textAlign: 'center', marginBottom: '12px', fontSize: '18px', fontWeight: 'bold' }}>
-                  {team.icon} {team.name}
-                </div>
-                <div style={{ fontSize: '14px', color: '#666', marginBottom: '8px', textAlign: 'center' }}>
-                  {team.members.length}人
-                </div>
+              <div key={team.id} style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', borderTop: `4px solid ${team.color}` }}>
+                <div style={{ textAlign: 'center', marginBottom: '12px', fontSize: '18px', fontWeight: 'bold' }}>{team.icon} {team.name}</div>
+                <div style={{ fontSize: '14px', color: '#666', marginBottom: '8px', textAlign: 'center' }}>{team.members.length}人</div>
                 {team.members.map((member: any) => (
-                  <div key={member.id} onClick={() => moveToUnassigned(member, team.id)} style={{
-                    padding: '8px 12px', marginBottom: '6px', backgroundColor: '#f9f9f9',
-                    borderRadius: '8px', cursor: 'pointer', display: 'flex',
-                    alignItems: 'center', fontSize: '15px',
-                  }}>
-                    <span style={{ marginRight: '6px' }}>{member.emoji}</span>
+                  <div key={member.id} onClick={() => moveToUnassigned(member, team.id)} style={{ padding: '8px 10px', marginBottom: '6px', backgroundColor: '#f9f9f9', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px' }}>
+                    <Avatar avatar={member.avatar} seed={member.id} size={30} rounded />
                     {member.name}
                   </div>
                 ))}
-                {team.members.length === 0 && (
-                  <div style={{ textAlign: 'center', color: '#ccc', padding: '20px', fontSize: '14px' }}>
-                    拖拽学生到这里
-                  </div>
-                )}
               </div>
             ))}
           </div>
 
           {unassigned.length > 0 && (
-            <div style={{
-              backgroundColor: '#fff', borderRadius: '16px', padding: '20px',
-              marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-              border: '2px dashed #FF9800',
-            }}>
-              <div style={{ fontWeight: 'bold', marginBottom: '12px', color: '#FF9800' }}>
-                ⚠️ 未分配学生（点击可分配到队伍）：
-              </div>
+            <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '20px', marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '2px dashed #FF9800' }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '12px', color: '#FF9800' }}>⚠️ 未分配学生：</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                 {unassigned.map(student => (
-                  <div key={student.id} style={{
-                    padding: '8px 14px', backgroundColor: '#FFF3E0',
-                    borderRadius: '20px', display: 'flex', alignItems: 'center',
-                    gap: '4px', fontSize: '15px',
-                  }}>
-                    <span>{student.emoji}</span>
+                  <div key={student.id} style={{ padding: '6px 12px', backgroundColor: '#FFF3E0', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '15px' }}>
+                    <Avatar avatar={student.avatar} seed={student.id} size={26} rounded />
                     {student.name}
-                    <select onChange={(e) => { if (e.target.value) moveToTeam(student, e.target.value) }}
-                      style={{ marginLeft: '4px', fontSize: '12px', borderRadius: '4px', border: '1px solid #ccc' }}>
+                    <select onChange={(e) => { if (e.target.value) moveToTeam(student, e.target.value) }} style={{ marginLeft: '4px', fontSize: '12px', borderRadius: '4px', border: '1px solid #ccc' }}>
                       <option value="">分配→</option>
-                      {teams.map(t => (
-                        <option key={t.id} value={t.id}>{t.icon} {t.name}</option>
-                      ))}
+                      {teams.map(t => <option key={t.id} value={t.id}>{t.icon} {t.name}</option>)}
                     </select>
                   </div>
                 ))}
@@ -256,14 +213,11 @@ export default function GroupingPage() {
         </>
       )}
 
-      {/* 开始游戏按钮 */}
       <button onClick={handleStartGame} style={{
         width: '100%', padding: '18px', borderRadius: '16px', fontSize: '20px',
         backgroundColor: '#4CAF50', color: '#fff', fontWeight: 'bold',
         boxShadow: '0 4px 12px rgba(76,175,80,0.3)',
-      }}>
-        🎮 开始游戏！
-      </button>
+      }}>🎮 开始游戏！</button>
     </div>
   )
 }

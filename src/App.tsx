@@ -7,6 +7,7 @@ import SettingsPage from './pages/SettingsPage'
 import QuestionBankPage from './pages/QuestionBankPage'
 import ClassDetailPage from './pages/ClassDetailPage'
 import ReportPage from './pages/ReportPage'
+import StudentManager from './pages/StudentManager'
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
       <Route path="/question-bank" element={<QuestionBankPage />} />
       <Route path="/class/:classId" element={<ClassDetailPage />} />
       <Route path="/class/:classId/report" element={<ReportPage />} />
+      <Route path="/students" element={<StudentManager />} />
     </Routes>
   )
 }

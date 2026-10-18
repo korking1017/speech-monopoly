@@ -1,5 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import type { ClassRecord, StudentRecord } from '../types'
+import { loadClasses, saveClasses, loadStudents } from '../utils/storage'
+import Avatar from '../components/Avatar'
+import { Modal, styles } from '../components/UI'
 
 const S = {
   container: { maxWidth: '800px', margin: '0 auto', padding: '20px' } as React.CSSProperties,
@@ -59,7 +63,7 @@ const S = {
 }
 
 function ClassCard({ cls, onEnter, onManage, onDelete }: {
-  cls: any
+  cls: ClassRecord
   onEnter: () => void
   onManage: () => void
   onDelete: () => void
@@ -68,7 +72,7 @@ function ClassCard({ cls, onEnter, onManage, onDelete }: {
     <div style={S.card}>
       <div style={S.cardTitle} onClick={onEnter}>📚 {cls.name}</div>
       <div style={S.cardInfo} onClick={onEnter}>
-        👥 {cls.students.length}名学生 | 📅 已上{cls.totalSessions}节课 | {cls.semester}
+        👥 {cls.studentIds.length}名学生 | 📅 已上{cls.totalSessions}节课 | {cls.semester}
       </div>
       <div style={S.cardActions}>
         <button onClick={(e) => { e.stopPropagation(); onEnter() }} style={{
@@ -86,16 +90,27 @@ function ClassCard({ cls, onEnter, onManage, onDelete }: {
 }
 
 function CreateClassModal({ onClose, onCreate }: {
-  onClose: () => void; onCreate: (name: string, students: string[]) => void
+  onClose: () => void; onCreate: (name: string, studentIds: string[]) => void
 }) {
   const [className, setClassName] = useState('')
-  const [studentInput, setStudentInput] = useState('')
+  const [allStudents, setAllStudents] = useState<StudentRecord[]>([])
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    setAllStudents(loadStudents())
+  }, [])
+
+  const toggleStudent = (id: string) => {
+    const newSet = new Set(selectedIds)
+    if (newSet.has(id)) newSet.delete(id)
+    else newSet.add(id)
+    setSelectedIds(newSet)
+  }
 
   const handleCreate = () => {
-    const students = studentInput.split('\n').map(s => s.trim()).filter(s => s.length > 0)
     if (!className.trim()) { alert('请输入班级名称'); return }
-    if (students.length < 1) { alert('请至少输入1名学生（每行一个名字）'); return }
-    onCreate(className, students)
+    if (selectedIds.size < 1) { alert('请至少选择1名学生'); return }
+    onCreate(className.trim(), Array.from(selectedIds))
   }
 
   return (
@@ -107,13 +122,41 @@ function CreateClassModal({ onClose, onCreate }: {
           <input type="text" value={className} onChange={e => setClassName(e.target.value)}
             placeholder="例如：口才3班" style={S.input} />
         </div>
-        <div style={{ marginBottom: '20px' }}>
+        <div style={{ marginBottom: '16px' }}>
           <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
-            学生名单（每行一个名字，可留空后续添加）：
+            选择学生（已选 {selectedIds.size} 人）：
           </label>
-          <textarea value={studentInput} onChange={e => setStudentInput(e.target.value)}
-            placeholder={'张三\n李四\n王五\n赵六'} rows={8} style={S.textarea} />
-        </div>
+          {allStudents.length === 0 ? (
+            <div style={{ textAlign: 'center', color: '#999', padding: '20px' }}>
+              <p>暂无学生数据</p>
+              <p style={{ fontSize: '13px' }}>请先在「学生管理」中添加学生</p>
+            </div>
+          ) : (
+            <div style={{ maxHeight: '250px', overflow: 'auto' }}>
+              {allStudents.map((s: any) => (
+                <div key={s.id} onClick={() => toggleStudent(s.id)} style={{
+                  display: 'flex', alignItems: 'center', padding: '10px',
+                  marginBottom: '6px', backgroundColor: selectedIds.has(s.id) ? '#E8EFF9' : '#f9f9f9',
+                  borderRadius: '10px', cursor: 'pointer',
+                  border: selectedIds.has(s.id) ? '2px solid #5B8DEF' : '2px solid transparent',
+                }}>
+                  <div style={{
+                    width: '22px', height: '22px', borderRadius: '6px',
+                    border: selectedIds.has(s.id) ? '2px solid #5B8DEF' : '2px solid #ccc',
+                    backgroundColor: selectedIds.has(s.id) ? '#5B8DEF' : '#fff',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    marginRight: '10px', fontSize: '14px', color: '#fff', fontWeight: 'bold',
+                    flexShrink: 0,
+                  }}>{selectedIds.has(s.id) ? '✓' : ''}</div>
+                  <Avatar avatar={s.avatar} seed={s.id} size={34} rounded />
+                  <div>
+                    <div style={{ fontWeight: 'bold', fontSize: '15px' }}>{s.name}</div>
+                    <div style={{ fontSize: '12px', color: '#666' }}>积分：{s.stats.totalScore} | Lv.{s.stats.currentLevel}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}        </div>
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
           <button style={S.cancelBtn} onClick={onClose}>取消</button>
           <button style={S.confirmBtn} onClick={handleCreate}>创建班级</button>
@@ -124,53 +167,44 @@ function CreateClassModal({ onClose, onCreate }: {
 }
 
 export default function HomePage() {
-  const [classes, setClasses] = useState<any[]>([])
+  const [classes, setClasses] = useState<ClassRecord[]>([])
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [deletingClass, setDeletingClass] = useState<ClassRecord | null>(null)
   const navigate = useNavigate()
 
+  const refresh = () => setClasses(loadClasses())
+
   useEffect(() => {
-    const stored = localStorage.getItem('speech_classes')
-    if (stored) setClasses(JSON.parse(stored))
+    refresh()
   }, [])
 
-  const saveClasses = (updated: any[]) => {
+  const persist = (updated: ClassRecord[]) => {
     setClasses(updated)
-    localStorage.setItem('speech_classes', JSON.stringify(updated))
+    saveClasses(updated)
   }
 
-  const handleCreateClass = (name: string, studentNames: string[]) => {
-    const emojis = ['🦊', '🐱', '🐶', '🐼', '🦁', '🐯', '🐰', '🐨', '🐮', '🐷']
-    const newClass = {
-      id: Date.now().toString(),
+  const handleCreateClass = (name: string, studentIds: string[]) => {
+    const now = new Date()
+    const newClass: ClassRecord = {
+      id: `cls_${Date.now()}`,
       name,
-      semester: new Date().getFullYear() + '年' + (new Date().getMonth() + 1) + '月',
-      createdAt: new Date().toISOString(),
+      semester: `${now.getFullYear()}年${now.getMonth() + 1}月`,
+      createdAt: now.toISOString(),
+      startedAt: now.getTime(),
       totalSessions: 0,
-      students: studentNames.map((name, i) => ({
-        id: Date.now().toString() + i,
-        name,
-        emoji: emojis[i % emojis.length],
-        stats: {
-          totalScore: 0, sessionsAttended: 0, winCount: 0, mvpCount: 0,
-          currentLevel: 1, currentRank: '口语新星',
-          categoryStats: {
-            tongueTwister: { completed: 0, totalScore: 0, avgScore: 0 },
-            recitation: { completed: 0, totalScore: 0, avgScore: 0 },
-            impromptu: { completed: 0, totalScore: 0, avgScore: 0 },
-            imitation: { completed: 0, totalScore: 0, avgScore: 0 },
-          },
-        },
-        inventory: [],
-        achievements: [],
-      })),
+      studentIds,
+      students: [],
+      // 新班级的本学期积分从 0 开始，不会继承学生的历史总积分
+      scores: Object.fromEntries(studentIds.map((id) => [id, 0])),
+      attendance: Object.fromEntries(studentIds.map((id) => [id, 0])),
     }
-    saveClasses([...classes, newClass])
+    persist([...classes, newClass])
     setShowCreateModal(false)
   }
 
-  const handleDeleteClass = (classId: string, className: string) => {
-    if (!confirm(`确定要删除「${className}」吗？\n该班级的所有数据将被永久删除！`)) return
-    saveClasses(classes.filter(c => c.id !== classId))
+  const handleDeleteClass = (cls: ClassRecord) => {
+    persist(classes.filter((c) => c.id !== cls.id))
+    setDeletingClass(null)
   }
 
   return (
@@ -186,13 +220,14 @@ export default function HomePage() {
           <div style={S.emptyBox}>
             <div style={{ fontSize: '48px', marginBottom: '16px' }}>📭</div>
             <p>还没有班级，点击下方按钮创建一个吧！</p>
+            <p style={{ fontSize: '13px', marginTop: '8px' }}>提示：请先在「学生管理」中添加学生</p>
           </div>
         ) : (
-          classes.map((cls: any) => (
+          classes.map((cls) => (
             <ClassCard key={cls.id} cls={cls}
               onEnter={() => navigate(`/checkin/${cls.id}`)}
               onManage={() => navigate(`/class/${cls.id}`)}
-              onDelete={() => handleDeleteClass(cls.id, cls.name)}
+              onDelete={() => setDeletingClass(cls)}
             />
           ))
         )}
@@ -206,6 +241,12 @@ export default function HomePage() {
         <button style={S.secondaryBtn} onClick={() => navigate('/settings')}>
           ⚙️ 系统设置
         </button>
+        <button style={S.secondaryBtn} onClick={() => navigate('/students')}>
+          👥 学生管理
+        </button>
+      </div>
+
+      <div style={{ marginTop: '10px', display: 'flex', gap: '12px' }}>
         <button style={S.secondaryBtn} onClick={() => navigate('/question-bank')}>
           📚 题库管理
         </button>
@@ -213,6 +254,24 @@ export default function HomePage() {
 
       {showCreateModal && (
         <CreateClassModal onClose={() => setShowCreateModal(false)} onCreate={handleCreateClass} />
+      )}
+
+      {deletingClass && (
+        <Modal title="🗑️ 删除班级" onClose={() => setDeletingClass(null)} maxWidth={420}>
+          <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#555' }}>
+            确定要删除「{deletingClass.name}」吗？
+            <br />
+            <span style={{ color: '#4CAF50' }}>学生档案和累计总积分保留在学生管理中心，不会丢失。</span>
+            <br />
+            <span style={{ color: '#F44336', fontSize: '13px' }}>该班的本学期积分记录将一并删除。</span>
+          </p>
+          <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+            <button onClick={() => setDeletingClass(null)} style={{ ...styles.ghostBtn, flex: 1 }}>取消</button>
+            <button onClick={() => handleDeleteClass(deletingClass)} style={{ ...styles.dangerBtn, flex: 2 }}>
+              确认删除
+            </button>
+          </div>
+        </Modal>
       )}
     </div>
   )

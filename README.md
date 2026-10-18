@@ -1,75 +1,83 @@
-# React + TypeScript + Vite
+# 🎯 口才大富翁
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+少儿口才课堂互动游戏（棋盘类）。教师可在课堂上进行签到、分组、掷骰子闯关、评分与学期统计。
 
-Currently, two official plugins are available:
+技术栈：**React 18 + TypeScript + Vite**，数据保存在浏览器 `localStorage`，可部署到 GitHub Pages，iPad / 手机 / 电脑均可离线使用。
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## 功能一览
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+| 模块 | 说明 |
+| --- | --- |
+| 🏫 班级管理 | 创建班级、添加/移除学生、查看本学期积分与课时 |
+| 👥 学生管理 | 学生档案、人物形象、累计总积分、题型统计、道具背包、学期记录 |
+| 📋 上课流程 | 签到 → 分组（个人战/团队战 + 难度）→ 棋盘对局 → 下课结算 |
+| 🎲 棋盘对局 | 2D 仿 3D 等距棋盘、掷骰子、任务评分、强制 PK、道具卡、幸运转盘、陷阱格 |
+| 📊 学期报告 | 本学期积分排行、积分冠军、全勤之星、题型数据 |
+| 📚 题库管理 | 7 类题目增删改查，支持自定义 |
+| ⚙️ 系统设置 | 班级管理、数据导出 / 导入备份 |
 
-## Expanding the ESLint configuration
+---
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## 核心设计说明
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+### 1. 两套积分（重要）
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+系统刻意区分两套互不干扰的积分：
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+- **累计总积分** `student.stats.totalScore`
+  学生跨学期、跨班级的历史总分，在 **学生管理中心** 展示。
+- **本学期积分** `class.scores[studentId]`
+  该班级创建之后，学生在这个班里获得的积分，在 **班级详情页 / 学期报告** 展示。
 
+每局「下课结算」时，同一笔得分会分别累加到这两处：学生的总积分增加，同时该班的学期积分增加。新建班级时学期积分从 0 开始，不会继承学生的历史总分。
+
+### 2. 数据兼容与升级（不会丢数据）
+
+`src/utils/storage.ts` 是统一数据层，升级策略为 **只补字段、不删数据**：
+
+- 首次升级时自动把**原始数据快照**存入 `speech_backup_v1_*`，万一异常可在「系统设置」一键恢复升级前状态。
+- 读取任何旧数据都会经过 `normalizeStudent` / `normalizeClass` 补齐缺失字段并保留原值。
+- 老版本把学生内嵌在班级里的格式，会自动迁移进学生库（保留原有 id 与积分）。
+- 老班级没有学期积分记录时，会依据 `semesterHistory` 中同学期的记录补种一次，之后只做累加。
+- 迁移逻辑是幂等的，重复执行不会产生重复数据，也不会重复累加。
+
+> 因此从旧版本更新到新版本时，iPad 上已有的学生、积分、道具、班级关联都会完整保留。
+
+### 3. 人物形象
+
+纯 SVG 内置部件库（`src/data/avatar.ts` + `src/components/Avatar.tsx`），不依赖任何图片或网络资源：
+
+- 可配置：脸型、肤色、发型、发色、眼睛、衣饰、服装颜色、配饰
+- 添加学生时可直接设置，之后可在「学生管理」或「班级管理」中随时修改
+- 老学生没有形象数据时，会依据学生 id 生成 **稳定** 的随机形象（每次打开都一致）
+
+### 4. 2D 仿 3D 棋盘
+
+`src/components/Board3D.tsx` + `src/data/board.ts`：
+
+- 等距（isometric）投影，格子带立体厚度与明暗面
+- 蛇形回合路径（奇数行反向），相邻格间距恒定
+- 棋子立于格子上方并带地面投影，移动时平滑过渡
+- 棋盘宽度自适应容器，iPad 横竖屏均可完整显示
+
+---
+
+## 本地开发
+
+```bash
+npm install
+npm run dev      # 开发预览
+npm run build    # 生产构建（输出到 dist/）
+npm run preview  # 预览构建结果
+npm run deploy   # 发布到 GitHub Pages
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## 部署
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+项目部署在 GitHub Pages 的子路径下，`vite.config.ts` 中的 `base: '/speech-monopoly/'` 需与仓库名保持一致。
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## 数据备份
 
-```
+所有数据保存在当前设备的浏览器本地。建议在「系统设置 → 数据备份与恢复」中定期导出 JSON 备份；更换设备或误删数据时可用备份文件恢复。

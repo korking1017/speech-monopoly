@@ -1,9 +1,16 @@
 import { useState } from 'react'
-import { questionBank } from '../data/questions'
+import { questionBank, saveQuestionBank } from '../data/questions'
 import type { Question } from '../data/questions'
 
 export default function QuestionBankPage() {
-  const [questions, setQuestions] = useState(questionBank)
+  const [questions, setQuestions] = useState<Record<string, Question[]>>(() => {
+    const stored = localStorage.getItem('speech_question_bank')
+    if (stored) {
+      try { return JSON.parse(stored) } catch (e) {}
+    }
+    return questionBank
+  })
+
   const [showAddModal, setShowAddModal] = useState(false)
   const [newQuestion, setNewQuestion] = useState({
     type: 'tongue_twister', title: '', content: '', difficulty: 1, timeLimit: 30, tags: '',
@@ -15,17 +22,26 @@ export default function QuestionBankPage() {
     { key: 'impromptu', label: '💡 即兴演讲' },
     { key: 'imitation', label: '🎭 模仿秀' },
     { key: 'teamwork', label: '🤝 团队协作' },
+    { key: 'team_battle', label: '🥊 团队对抗' },
+    { key: 'team_cooperate', label: '🤲 团队合作' },
   ]
 
   let totalCount = 0
   Object.values(questions).forEach(arr => { totalCount += arr.length })
+
+  const saveAndSync = (updated: Record<string, Question[]>) => {
+    setQuestions(updated)
+    saveQuestionBank(updated)
+    for (const key of Object.keys(updated)) {
+      ;(questionBank as any)[key] = updated[key]
+    }
+  }
 
   const handleAddQuestion = () => {
     if (!newQuestion.title.trim() || !newQuestion.content.trim()) {
       alert('请填写题目名称和内容！')
       return
     }
-
     const q: Question = {
       id: 'custom_' + Date.now(),
       type: newQuestion.type as any,
@@ -35,12 +51,9 @@ export default function QuestionBankPage() {
       timeLimit: newQuestion.timeLimit,
       tags: newQuestion.tags.split(',').map(t => t.trim()).filter(t => t),
     }
-
     const key = newQuestion.type
     const updated = { ...questions, [key]: [...(questions[key] || []), q] }
-    setQuestions(updated)
-    ;(questionBank as any)[key] = updated[key]
-
+    saveAndSync(updated)
     setNewQuestion({ type: 'tongue_twister', title: '', content: '', difficulty: 1, timeLimit: 30, tags: '' })
     setShowAddModal(false)
   }
@@ -48,8 +61,7 @@ export default function QuestionBankPage() {
   const handleDeleteQuestion = (type: string, id: string) => {
     if (!confirm('确定删除这道题目吗？')) return
     const updated = { ...questions, [type]: questions[type].filter(q => q.id !== id) }
-    setQuestions(updated)
-    ;(questionBank as any)[type] = updated[type]
+    saveAndSync(updated)
   }
 
   return (
@@ -71,6 +83,7 @@ export default function QuestionBankPage() {
       }}>
         <div style={{ fontSize: '48px', marginBottom: '8px' }}>📚</div>
         <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#5B8DEF' }}>共 {totalCount} 题</div>
+        <div style={{ fontSize: '12px', color: '#999', marginTop: '4px' }}>数据已自动保存</div>
       </div>
 
       {allTypes.map(type => {
@@ -129,7 +142,6 @@ export default function QuestionBankPage() {
             width: '90%', maxWidth: '550px', maxHeight: '85vh', overflow: 'auto',
           }} onClick={e => e.stopPropagation()}>
             <h3 style={{ marginBottom: '16px' }}>✏️ 新增题目</h3>
-
             <div style={{ marginBottom: '12px' }}>
               <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold', fontSize: '14px' }}>题目类型</label>
               <select value={newQuestion.type} onChange={e => setNewQuestion({ ...newQuestion, type: e.target.value })}
@@ -137,7 +149,6 @@ export default function QuestionBankPage() {
                 {allTypes.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
               </select>
             </div>
-
             <div style={{ marginBottom: '12px' }}>
               <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold', fontSize: '14px' }}>难度</label>
               <div style={{ display: 'flex', gap: '8px' }}>
@@ -151,7 +162,6 @@ export default function QuestionBankPage() {
                 ))}
               </div>
             </div>
-
             <div style={{ marginBottom: '12px' }}>
               <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold', fontSize: '14px' }}>题目名称</label>
               <input type="text" value={newQuestion.title}
@@ -159,7 +169,6 @@ export default function QuestionBankPage() {
                 placeholder="例如：四是四，十是十"
                 style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '2px solid #E0E0E0', fontSize: '15px' }} />
             </div>
-
             <div style={{ marginBottom: '12px' }}>
               <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold', fontSize: '14px' }}>题目内容</label>
               <textarea value={newQuestion.content}
@@ -167,14 +176,12 @@ export default function QuestionBankPage() {
                 placeholder="输入完整题目内容..." rows={4}
                 style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '2px solid #E0E0E0', fontSize: '15px', resize: 'vertical' }} />
             </div>
-
             <div style={{ marginBottom: '12px' }}>
               <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold', fontSize: '14px' }}>时间限制（秒）</label>
               <input type="number" value={newQuestion.timeLimit}
                 onChange={e => setNewQuestion({ ...newQuestion, timeLimit: parseInt(e.target.value) || 30 })}
                 style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '2px solid #E0E0E0', fontSize: '15px' }} />
             </div>
-
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold', fontSize: '14px' }}>标签（用逗号分隔）</label>
               <input type="text" value={newQuestion.tags}
@@ -182,7 +189,6 @@ export default function QuestionBankPage() {
                 placeholder="例如：发音, 数字"
                 style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '2px solid #E0E0E0', fontSize: '15px' }} />
             </div>
-
             <div style={{ display: 'flex', gap: '10px' }}>
               <button onClick={() => setShowAddModal(false)} style={{
                 flex: 1, padding: '12px', borderRadius: '10px',
